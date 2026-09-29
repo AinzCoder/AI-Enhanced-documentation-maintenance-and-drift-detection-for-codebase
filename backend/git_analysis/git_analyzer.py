@@ -36,8 +36,21 @@ def analyze_git_repository(repository_path: str):
 
     for change in diff:
 
-        print(
-            "  ",
-            change.change_type,
-            change.a_path
-        )
+        print("\nFile:", change.a_path)
+        print("Change type:", change.change_type)
+
+        patch = change.diff
+
+        print("Diff:")
+        print(patch)
+
+def get_file_from_commit(repository_path, commit_hash, file_path):
+    from git import Repo
+
+    repository = Repo(repository_path)
+
+    commit = repository.commit(commit_hash)
+
+    file_content = commit.tree / file_path
+
+    return file_content.data_stream.read()
