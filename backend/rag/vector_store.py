@@ -17,7 +17,7 @@ def add_document(
     embedding: list[float],
     metadata: dict
 ):
-    collection.add(
+    collection.upsert(
         ids=[document_id],
         documents=[text],
         embeddings=[embedding],
@@ -35,3 +35,16 @@ def search_documents(
     )
 
     return results
+
+
+def clear_collection():
+
+    global collection
+
+    client.delete_collection(
+        name="documentation"
+    )
+
+    collection = client.get_or_create_collection(
+        name="documentation"
+    )

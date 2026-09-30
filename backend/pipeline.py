@@ -15,6 +15,18 @@ from drift_analysis.drift_detector import (
     detect_documentation_drift
 )
 
+from rag.documentation_generator import (
+    generate_update_for_change
+)
+
+from approval.documentation_approval import (
+    show_documentation_suggestion
+)
+
+from approval.documentation_updater import (
+    update_method_documentation
+)
+
 import tempfile
 import os
 
@@ -156,7 +168,89 @@ def run_pipeline(repository_path: str):
                     print(drift)
 
 
+                    # Read current working-tree code
+                    current_code_path = (
+                        repository_path + "/" + file_path
+                    )
+
+                    with open(
+                        current_code_path,
+                        "r",
+                        encoding="utf-8"
+                    ) as code_file:
+
+                        current_code = code_file.read()
+
+                    ai_result = generate_update_for_change(
+                        class_name=drift["class"],
+                        method_name=drift["method"],
+                        change_type=drift["change_type"],
+                        code=current_code
+                    )
+
+                    print("\n===== RAG CONTEXT =====")
+
+                    for document in ai_result["retrieved_documents"]:
+                        print(document)
+                    
+                        # Show suggestion to developer
+                    status, final_documentation = (
+                        show_documentation_suggestion(
+                            ai_result["suggestion"]
+                        )
+                    )
+
+                    print("\n===== APPROVAL RESULT =====")
+                    print("Status:", status)
+
+                    # Approved or edited documentation
+                    if status in {"approved", "edited"}:
+
+                        # Select the first mapped documentation file
+                        if documentation_files:
+
+                            documentation_file = (
+                            ai_result["retrieved_documents"][0]["file"]
+                            )
+
+                            # Update documentation
+                            update_result = (
+                                update_method_documentation(
+                                    repository_path=repository_path,
+                                    documentation_file=documentation_file,
+                                    class_name=drift["class"],
+                                    method_name=drift["method"],
+                                    new_documentation=final_documentation
+                                )
+                            )
+
+                            print(
+                                "\n===== DOCUMENTATION UPDATE ====="
+                            )
+
+                            print(
+                                "Updated:",
+                                documentation_file
+                            )
+
+                            print(
+                                "Success:",
+                                update_result
+                            )
+
+                    else:
+
+                        print(
+                            "\nDocumentation was not modified."
+                        )
+
+
         finally:
 
             os.remove(old_file_path)
             os.remove(new_file_path)
+
+if __name__ == "__main__":
+    run_pipeline(
+        "../test_repositories/OrderManagement"
+    )

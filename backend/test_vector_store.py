@@ -6,7 +6,11 @@ from rag.vector_store import (
 )
 
 
-text = """
+# --------------------------------
+# STORE DOCUMENT
+# --------------------------------
+
+document = """
 # API Documentation
 
 ## OrderService
@@ -15,13 +19,15 @@ Provides order management functionality.
 """
 
 
-embedding = generate_embedding(text)
+document_embedding = generate_embedding(
+    document
+)
 
 
 add_document(
     document_id="api_chunk_1",
-    text=text,
-    embedding=embedding,
+    text=document,
+    embedding=document_embedding,
     metadata={
         "file": "docs/API.md",
         "type": "documentation"
@@ -31,15 +37,35 @@ add_document(
 
 print("===== DOCUMENT STORED =====")
 
-print("ID: api_chunk_1")
+
+# --------------------------------
+# SEMANTIC SEARCH
+# --------------------------------
+
+query = "How does the system handle orders?"
+
+
+query_embedding = generate_embedding(
+    query
+)
 
 
 results = search_documents(
-    embedding,
+    query_embedding,
     top_k=1
 )
 
 
-print("\n===== SEARCH RESULT =====")
+print("\n===== QUERY =====")
 
-print(results)
+print(query)
+
+
+print("\n===== RETRIEVED DOCUMENT =====")
+
+print(results["documents"][0][0])
+
+
+print("\n===== DISTANCE =====")
+
+print(results["distances"][0][0])
