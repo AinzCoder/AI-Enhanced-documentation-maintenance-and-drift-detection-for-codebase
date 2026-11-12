@@ -10,5 +10,14 @@ it.each([
     status, statusText: "error", data: { detail: "Denied" },
     headers: {}, config: { headers: new AxiosHeaders() },
   });
+
   expect(getApiErrorMessage(error)).toBe(message);
+});
+
+it("provides actionable local guidance for a missing backend mode", () => {
+  const error = new AxiosError("failed", undefined, undefined, undefined, {
+    status: 503, statusText: "error", data: { detail: "DocGuard mode is not configured." },
+    headers: {}, config: { headers: new AxiosHeaders() },
+  });
+  expect(getApiErrorMessage(error)).toContain("DOCGUARD_MODE=local");
 });

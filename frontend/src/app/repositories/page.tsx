@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import Link from "next/link";
 import { apiBaseUrl } from "@/lib/apiBaseUrl";
+import { getApiErrorMessage } from "@/lib/api";
 import { isHosted } from "@/lib/deployment";
 import { useRepositoryAnalysis } from "../components/repository/RepositoryAnalysisContext";
 import RepositorySourceSelector from "../components/repository/RepositorySourceSelector";
@@ -57,7 +58,7 @@ export default function RepositoriesPage() {
       } else if (isHosted && axios.isAxiosError(err) && err.response?.status === 403) {
         setError("You do not have permission to access these repositories.");
       } else {
-        setError("Could not load repositories. Check whether FastAPI is running.");
+        setError(getApiErrorMessage(err));
       }
     } finally {
       setLoading(false);
@@ -103,14 +104,7 @@ export default function RepositoriesPage() {
     } catch (err) {
       console.error("Failed to add repository:", err);
 
-      if (axios.isAxiosError(err)) {
-        setError(
-          err.response?.data?.detail ||
-            "Could not register repository. Check the backend connection."
-        );
-      } else {
-        setError("An unexpected error occurred.");
-      }
+      setError(getApiErrorMessage(err));
     } finally {
       addingRef.current = false;
       setAdding(false);

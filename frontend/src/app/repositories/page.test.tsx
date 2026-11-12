@@ -6,7 +6,7 @@ import RepositoriesPage from "./page";
 import { RepositoryHarness } from "@/test/repositoryHarness";
 import { useRepositoryAnalysis } from "../components/repository/RepositoryAnalysisContext";
 
-vi.mock("axios", () => ({ default: { get: vi.fn(), post: vi.fn(), delete: vi.fn(), isAxiosError: vi.fn() } }));
+vi.mock("axios", () => ({ default: { get: vi.fn(), post: vi.fn(), delete: vi.fn(), isAxiosError: vi.fn(), create: vi.fn() } }));
 vi.mock("@/lib/apiBaseUrl", () => ({ apiBaseUrl: "https://backend.example.test" }));
 
 function SelectedRepository() {
@@ -73,5 +73,31 @@ describe("registered repositories", () => {
     await user.type(screen.getByLabelText("Repository path"), String.raw`D:\missing`);
     await user.click(screen.getByRole("button", { name: "Add Repository" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Repository not found.");
+  });
+
+  it("explains how to correct a backend with no configured mode", async () => {
+    vi.mocked(axios.get).mockRejectedValueOnce({
+      response: { status: 503, data: { detail: "DocGuard mode is not configured." } },
+    });
+    vi.mocked(axios.isAxiosError).mockReturnValue(true);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<RepositoryHarness repositoryPath=""><RepositoriesPage /></RepositoryHarness>);
+    expect(await screen.findByRole("alert")).toHaveTextContent("DOCGUARD_MODE=local");
+    log.mockRestore();
+  });
+
+  it("explains the backend mode error when registration fails", async () => {
+    const user = userEvent.setup();
+    vi.mocked(axios.post).mockRejectedValueOnce({
+      response: { status: 503, data: { detail: "DocGuard mode is not configured." } },
+    });
+    vi.mocked(axios.isAxiosError).mockReturnValue(true);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<RepositoryHarness repositoryPath=""><RepositoriesPage /></RepositoryHarness>);
+    await screen.findByRole("link", { name: "Analyze" });
+    await user.type(screen.getByLabelText("Repository path"), String.raw`D:\Example`);
+    await user.click(screen.getByRole("button", { name: "Add Repository" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("DOCGUARD_MODE=local");
+    log.mockRestore();
   });
 });

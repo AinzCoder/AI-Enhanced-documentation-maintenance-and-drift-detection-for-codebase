@@ -34,8 +34,15 @@ describe("hosted backend proxy", () => {
     vi.mocked(getToken).mockResolvedValueOnce(null).mockResolvedValueOnce({
       apiAccessToken: "expired", apiAccessTokenExpires: Math.floor(Date.now() / 1000) - 1,
     });
+
     expect((await backendProxy(request("/history"), "/history")).status).toBe(401);
     expect((await backendProxy(request("/history"), "/history")).status).toBe(401);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("requires a session when listing hosted repositories", async () => {
+    vi.mocked(getToken).mockResolvedValueOnce(null);
+    expect((await backendProxy(request("/repositories"), "/repositories")).status).toBe(401);
     expect(fetch).not.toHaveBeenCalled();
   });
 

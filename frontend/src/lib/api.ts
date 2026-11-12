@@ -1,5 +1,6 @@
 import axios from "axios";
 import { apiBaseUrl } from "@/lib/apiBaseUrl";
+import { isHosted } from "@/lib/deployment";
 import type {
   AnalyzeRequest,
   AnalyzeResponse,
@@ -32,6 +33,10 @@ export function getApiErrorMessage(error: unknown): string {
     if (error.response?.status === 401) return "Your session has expired. Sign in again.";
     if (error.response?.status === 403) return "You do not have permission to perform this action.";
     const responseData = error.response?.data;
+    if (!isHosted && error.response?.status === 503 &&
+        responseData?.detail === "DocGuard mode is not configured.") {
+      return "Backend mode is not configured. Restart the backend with DOCGUARD_MODE=local for trusted local development.";
+    }
     if (typeof responseData?.detail === "string") {
       return responseData.detail;
     }

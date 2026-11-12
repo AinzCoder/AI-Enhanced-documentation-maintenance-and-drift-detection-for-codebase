@@ -59,10 +59,16 @@ used by the application:
 Start the backend:
 
 ```powershell
-Set-Location backend
-$env:DOCGUARD_MODE = "local"
-& ..\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+& .\backend\run-local.ps1 -Python ".\.venv\Scripts\python.exe"
 ```
+
+The local launcher explicitly sets `DOCGUARD_MODE=local` for the backend
+process and binds it to loopback. Run it from a trusted development machine
+only. Alternatively set `$env:DOCGUARD_MODE = "local"` in the same terminal
+before starting Uvicorn. The `DOCGUARD_MODE` entry in `backend\.env` is not
+automatically loaded into the process environment. If `/docs` works but
+repository requests return `DocGuard mode is not configured`, stop the old
+backend and restart it with one of these commands. Unset modes still fail closed.
 
 ## Frontend setup and execution
 

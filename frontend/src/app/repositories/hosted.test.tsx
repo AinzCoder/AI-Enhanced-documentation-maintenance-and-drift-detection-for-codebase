@@ -7,7 +7,7 @@ import { RepositoryHarness } from "@/test/repositoryHarness";
 import { useRepositoryAnalysis } from "../components/repository/RepositoryAnalysisContext";
 
 vi.mock("@/lib/deployment", () => ({ isHosted: true }));
-vi.mock("axios", () => ({ default: { get: vi.fn(), post: vi.fn(), delete: vi.fn(), isAxiosError: vi.fn() } }));
+vi.mock("axios", () => ({ default: { get: vi.fn(), post: vi.fn(), delete: vi.fn(), isAxiosError: vi.fn(), create: vi.fn() } }));
 vi.mock("@/lib/apiBaseUrl", () => ({ apiBaseUrl: "/api/backend" }));
 
 function Selection() {
