@@ -181,12 +181,38 @@ def run_pipeline(repository_path: str):
 
                         current_code = code_file.read()
 
+
+
+                    # Parse the current Java source and extract the developer comment.
+                    code_model = analyze_java_file(current_code_path)
+
+                    developer_comment = None
+
+                    for class_info in code_model.classes:
+                        if class_info.name == drift["class"]:
+                            for method in class_info.methods:
+                                if method.name == drift["method"]:
+                                    developer_comment = method.comment
+                                    break
+                            break
+
+                    print("\n===== DEVELOPER COMMENT =====")
+                    print(developer_comment or "No developer comment found.")
+
                     ai_result = generate_update_for_change(
                         class_name=drift["class"],
                         method_name=drift["method"],
                         change_type=drift["change_type"],
-                        code=current_code
+                        code=current_code,
+                        developer_comment=developer_comment,
+                        repository_path=repository_path,
+                        source_file=os.path.relpath(
+                            current_code_path,
+                            repository_path
+                        )
                     )
+
+
 
                     print("\n===== RAG CONTEXT =====")
 
@@ -210,9 +236,8 @@ def run_pipeline(repository_path: str):
                         if documentation_files:
 
                             documentation_file = (
-                            ai_result["retrieved_documents"][0]["file"]
+                                ai_result["target_documentation"]
                             )
-
                             # Update documentation
                             update_result = (
                                 update_method_documentation(

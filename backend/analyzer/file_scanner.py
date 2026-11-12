@@ -1,5 +1,18 @@
 from pathlib import Path
 
+EXCLUDED_DIRECTORIES = {
+    ".git",
+    ".venv",
+    "venv",
+    "node_modules",
+    "target",
+    "build",
+    "dist",
+    ".next",
+    "__pycache__",
+    ".pytest_cache"
+}
+
 SOURCE_EXTENSIONS={
     ".java",".python",".js",".ts",".jsx",".tsx"
 }

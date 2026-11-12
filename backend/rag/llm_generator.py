@@ -1,8 +1,5 @@
-import requests
-
-
-OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL_NAME = "qwen2.5-coder:7b"
+from llm.groq_client import generate_response
+from llm.markdown_response import normalize_markdown_response
 
 
 def generate_documentation_suggestion(
@@ -10,9 +7,9 @@ def generate_documentation_suggestion(
     method_name: str,
     change_type: str,
     code: str,
-    documentation: str
+    documentation: str,
+    developer_comment: str | None = None
 ):
-
     prompt = f"""
 You are an AI assistant maintaining software documentation.
 
@@ -33,37 +30,26 @@ Current source code:
 Existing documentation:
 {documentation}
 
+Developer-provided comment:
+{developer_comment or "No developer comment provided."}
+
 Your task is to generate documentation ONLY for the affected method.
 
 Strict rules:
 
-1. Return ONLY the documentation for `{method_name}`.
-2. Do NOT return the complete API documentation.
-3. Do NOT return documentation for other methods.
-4. Do NOT include the class heading.
-5. Do NOT include "# API Documentation".
-6. Do NOT include "## {class_name}".
-7. Do NOT include "File:" or file names.
-8. Do NOT include explanations before or after the documentation.
-9. Do NOT use markdown code fences.
-10. Do NOT invent functionality.
-11. Base the documentation only on the source code.
-12. The output must be ready to insert directly inside the existing
-    `{class_name}` documentation section.
+1. Return only the documentation for the affected method.
+2. Do not return the complete API documentation or a class heading.
+3. Do not include file names, explanations, or Markdown code fences.
+4. Analyze the method's actual implementation, parameters, and return type.
+5. Use the developer-provided comment to understand the intended behavior.
+6. Do not copy the developer comment blindly. Synthesize it with the source code into accurate API documentation.
+7. Never claim that the method performs an operation that its implementation does not perform.
+8. If the developer comment and source code disagree, document only what the source code demonstrates and do not silently claim the intended behavior is implemented.
+9. Do not invent functionality, parameter behavior, return values, or side effects.
+10. Use existing documentation as context, not as proof that the current implementation supports a feature.
+11. Return documentation ready to insert into the existing class section, without repeating the class heading.
+12. Keep the result concise, accurate, and useful to a developer.
 
 Return the documentation for `{method_name}` only.
 """
-    response = requests.post(
-        OLLAMA_URL,
-        json={
-            "model": MODEL_NAME,
-            "prompt": prompt,
-            "stream": False
-        }
-    )
-
-    response.raise_for_status()
-
-    result = response.json()
-
-    return result["response"]
+    return normalize_markdown_response(generate_response(prompt))

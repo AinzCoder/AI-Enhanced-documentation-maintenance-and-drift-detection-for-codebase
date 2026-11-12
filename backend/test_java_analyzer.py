@@ -10,14 +10,12 @@ for class_info in result.classes:
     print("\nClass:", class_info.name)
 
     for method in class_info.methods:
-
-        print("  Method:", method.name)
-        print("    Return type:", method.return_type)
+        print(f"  Method: {method.name}")
+        print(f"    Return type: {method.return_type}")
+        print(f"    Comment: {method.comment}")
 
         for parameter in method.parameters:
-
             print(
-                "    Parameter:",
-                parameter.type,
-                parameter.name
+                f"    Parameter: "
+                f"{parameter.type} {parameter.name}"
             )
