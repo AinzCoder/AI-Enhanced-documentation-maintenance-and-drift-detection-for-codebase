@@ -1,0 +1,60 @@
+# Local environments and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+.coverage
+htmlcov/
+
+# Node and build output
+node_modules/
+.next/
+out/
+build/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Runtime data and model caches
+backend/data/
+backend/chroma_db/
+*.sqlite
+*.sqlite3
+*.db
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+*.db-wal
+*.db-shm
+**/.cache/huggingface/
+**/huggingface/hub/
+*.safetensors
+*.onnx
+*.pt
+*.pth
+pytorch_model.bin
+model.onnx
+/output/
+
+# Logs, temporary files, local editor settings
+*.log
+*.log.*
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.vercel/
