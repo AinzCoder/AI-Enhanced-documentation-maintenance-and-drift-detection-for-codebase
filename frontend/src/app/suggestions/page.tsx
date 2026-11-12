@@ -4,6 +4,8 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { apiBaseUrl } from "@/lib/apiBaseUrl";
+import { isHosted } from "@/lib/deployment";
+import type { SuggestionResponse } from "@/types/api";
 import {
   Sparkles,
   FileText,
@@ -13,20 +15,7 @@ import {
   Loader2,
 } from "lucide-react";
 
-type SuggestionResult = {
-  class: string;
-  method: string;
-  change_type: string;
-  target_documentation: string;
-  retrieved_documents: {
-    chunk: number;
-    file: string;
-    type: string;
-  }[];
-  suggestion: string;
-  developer_comment: string | null;
-  error?: string;
-};
+type SuggestionResult = SuggestionResponse & { error?: string };
 
 export default function SuggestionsPage() {
   const [repositoryPath, setRepositoryPath] = useState("");
@@ -101,7 +90,13 @@ export default function SuggestionsPage() {
       setDocumentation(response.data.suggestion);
     } catch (err) {
       console.error(err);
-      setError("Could not generate the suggestion. Check FastAPI and Groq.");
+      if (isHosted && axios.isAxiosError(err) && err.response?.status === 401) {
+        setError("Your session has expired. Sign in again.");
+      } else if (isHosted && axios.isAxiosError(err) && err.response?.status === 403) {
+        setError("You do not have permission to access this repository.");
+      } else {
+        setError("Could not generate the suggestion. Check FastAPI and Groq.");
+      }
     } finally {
       setLoading(false);
     }
@@ -161,7 +156,7 @@ export default function SuggestionsPage() {
 
           <div className="grid gap-4 md:grid-cols-2">
             <label className="text-sm text-slate-300">
-              Repository path
+              {isHosted ? "Repository ID" : "Repository path"}
               <input
                 value={repositoryPath}
                 onChange={(e) => setRepositoryPath(e.target.value)}
@@ -264,7 +259,7 @@ export default function SuggestionsPage() {
               </div>
 
               <p className="mb-3 text-sm text-slate-400">
-                Target file: {result.target_documentation}
+                Target file: {result.target_documentation ?? "None found"}
               </p>
 
               {result.developer_comment && (
@@ -287,7 +282,7 @@ export default function SuggestionsPage() {
                 You can edit the generated documentation before saving it.
               </p>
 
-              <div className="mt-5 flex flex-wrap gap-3">
+              {isHosted ? <p className="mt-4 text-sm text-amber-300">Hosted review is available through the generation preview workflow.</p> : <div className="mt-5 flex flex-wrap gap-3">
                 <button
                   onClick={() => submitDecision("approve")}
                   disabled={saving}
@@ -314,7 +309,7 @@ export default function SuggestionsPage() {
                   <XCircle size={18} />
                   Reject
                 </button>
-              </div>
+              </div>}
 
               {saving && (
                 <p className="mt-3 text-sm text-slate-400">
@@ -328,12 +323,12 @@ export default function SuggestionsPage() {
               <div className="space-y-3">
                 {result.retrieved_documents.map((doc, index) => (
                   <div
-                    key={`${doc.file}-${doc.chunk}-${index}`}
+                    key={`${doc.documentation_file}-${doc.chunk_index}-${index}`}
                     className="rounded-lg border border-slate-700 bg-[#0b1120] p-3"
                   >
-                    <p className="font-medium">{doc.file}</p>
+                    <p className="font-medium">{doc.documentation_file}</p>
                     <p className="mt-1 text-xs text-slate-400">
-                      Chunk {doc.chunk} · {doc.type}
+                      Chunk {doc.chunk_index} · {doc.source_type} · {doc.section_heading}
                     </p>
                   </div>
                 ))}

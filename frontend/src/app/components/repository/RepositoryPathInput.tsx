@@ -9,6 +9,13 @@ export default function RepositoryPathInput({
   onChange,
   disabled = false,
 }: RepositoryPathInputProps) {
+  if (isHosted) {
+    return <div>
+      <p className="mb-2 text-sm font-medium text-slate-800">Hosted repository</p>
+      <p className="break-all text-sm text-slate-700">{value || "No repository selected"}</p>
+      <Link href="/repositories" className="text-sm text-cyan-700 underline">Select a repository</Link>
+    </div>;
+  }
   return (
     <div>
       <label
@@ -37,3 +44,5 @@ export default function RepositoryPathInput({
     </div>
   );
 }
+import { isHosted } from "@/lib/deployment";
+import Link from "next/link";

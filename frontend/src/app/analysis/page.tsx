@@ -15,6 +15,8 @@ import {
   analyzeRepository,
   getApiErrorMessage,
 } from "@/lib/api";
+import { isValidRepositorySelection } from "@/lib/repositorySelection";
+import { isHosted } from "@/lib/deployment";
 import type {
   AnalysisMode,
   AnalyzeResponse,
@@ -26,7 +28,7 @@ type AnalysisResult =
   | { mode: "working_tree" | "commits"; data: AnalyzeResponse };
 
 function isAbsoluteWindowsPath(path: string): boolean {
-  return /^[A-Za-z]:[\\/]/.test(path) || /^\\\\[^\\]+\\[^\\]+/.test(path);
+  return isValidRepositorySelection(path);
 }
 
 export default function RepositoryAnalysisPage() {
@@ -58,7 +60,7 @@ export default function RepositoryAnalysisPage() {
     }
     if (!isAbsoluteWindowsPath(path)) {
       setFormError(
-        "Enter an absolute Windows path, such as D:\\Projects\\MyJavaRepository."
+        isHosted ? "Select a hosted repository from the repository list." : "Enter an absolute Windows path, such as D:\\Projects\\MyJavaRepository."
       );
       return;
     }

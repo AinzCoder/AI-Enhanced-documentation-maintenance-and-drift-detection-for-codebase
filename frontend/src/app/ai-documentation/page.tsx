@@ -19,6 +19,7 @@ import {
   getGeneration,
 } from "@/lib/api";
 import { getWindowsRepositoryIdentity } from "@/lib/repositoryIdentity";
+import { isValidRepositorySelection } from "@/lib/repositorySelection";
 import type {
   AnalysisError,
   DocumentationIndexingSummary,
@@ -245,7 +246,7 @@ function safeErrorMessage(error: unknown): string {
 }
 
 function isAbsoluteWindowsPath(path: string): boolean {
-  return /^[A-Za-z]:[\\/]/.test(path) || /^\\\\[^\\]+\\[^\\]+/.test(path);
+  return isValidRepositorySelection(path);
 }
 
 function validateTarget(path: string): string | null {

@@ -29,6 +29,8 @@ export const apiClient = axios.create({
 
 export function getApiErrorMessage(error: unknown): string {
   if (axios.isAxiosError<ApiErrorResponse>(error)) {
+    if (error.response?.status === 401) return "Your session has expired. Sign in again.";
+    if (error.response?.status === 403) return "You do not have permission to perform this action.";
     const responseData = error.response?.data;
     if (typeof responseData?.detail === "string") {
       return responseData.detail;

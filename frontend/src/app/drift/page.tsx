@@ -1,5 +1,6 @@
 "use client";
 
+import { isValidRepositorySelection } from "@/lib/repositorySelection";
 import {
   AlertTriangle,
   BookOpenCheck,
@@ -351,7 +352,7 @@ function normalizeCoverage(
 }
 
 function isAbsoluteWindowsPath(path: string): boolean {
-  return /^[A-Za-z]:[\\/]/.test(path) || /^\\\\[^\\]+\\[^\\]+/.test(path);
+  return isValidRepositorySelection(path);
 }
 
 export default function DocumentationDriftPage() {

@@ -3,7 +3,7 @@ from approval.documentation_updater import update_method_documentation
 from rag.documentation_generator import generate_update_for_change
 from rag.indexer import index_repository_documentation
 from rag.repository_context_retriever import get_repository_index_status
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from pathlib import Path
 from git import Repo
@@ -19,7 +19,7 @@ from drift_analysis.drift_detector import (
     find_empty_documentation_files
 )
 
-from git_analysis.git_analyzer import get_java_file_changes
+from git_analysis.git_analyzer import NotGitRepositoryError, get_java_file_changes
 from models.code_model import CodeFile
 from analyzer.repository_analyzer import analyze_full_repository
 from documentation_generation.full_documentation_generator import (
@@ -50,6 +50,7 @@ from documentation_analysis.documentation_mapper import (
 from repository_identity import get_repository_identity
 from timing import timed
 from llm.groq_client import GroqClientError
+from app.security import Access, authenticate, list_workspaces, resolve_repository
 
 app = FastAPI(
     title="AI Documentation Maintenance System",
@@ -72,11 +73,11 @@ app.add_middleware(
 
 
 class RepositoryRequest(BaseModel):
-    repository_path: str
+    repository_path: str | None = None
+    repository_id: str | None = None
 
 
-class FullDocumentationGenerationRequest(BaseModel):
-    repository_path: str
+class FullDocumentationGenerationRequest(RepositoryRequest):
     target_documentation_file: str | None = None
     include_repository_overview: bool = True
     max_methods: int | None = Field(default=None, gt=0)
@@ -86,8 +87,7 @@ class GenerationDecisionRequest(BaseModel):
     decision: str
 
 
-class AnalyzeRequest(BaseModel):
-    repository_path: str
+class AnalyzeRequest(RepositoryRequest):
     mode: str = "working_tree"
     base_commit: str | None = None
 
@@ -96,6 +96,31 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 REPOSITORY_FILE = DATA_DIR / "repositories.json"
 HISTORY_FILE = DATA_DIR / "documentation_history.json"
 GENERATION_STORE_PATH = DATA_DIR / "documentation_generations.sqlite3"
+
+
+def _public_workspace_result(value, workspace):
+    if not workspace.repository_id:
+        return value
+    identity = get_repository_identity(workspace.path)
+    path = str(workspace.path.resolve())
+
+    def clean(item):
+        if isinstance(item, dict):
+            result = {key: clean(child) for key, child in item.items()}
+            if "stage" in item and "message" in item:
+                result["message"] = "Repository operation failed."
+            if item.get("failure_reason"):
+                result["failure_reason"] = "Repository operation failed."
+            return result
+        if isinstance(item, list):
+            return [clean(child) for child in item]
+        if isinstance(item, str):
+            return item.replace(identity, workspace.repository_id).replace(
+                path, "[workspace]"
+            ).replace(path.replace("\\", "/"), "[workspace]")
+        return item
+
+    return clean(value)
 
 def load_history():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -130,19 +155,17 @@ def save_repositories(repositories):
     with open(REPOSITORY_FILE, "w", encoding="utf-8") as file:
         json.dump(repositories, file, indent=4)
 
-class SuggestionRequest(BaseModel):
-    repository_path: str
+class SuggestionRequest(RepositoryRequest):
     file_path: str
     class_name: str
     method_name: str
     change_type: str
 
 
-class RagIndexRequest(BaseModel):
-    repository_path: str
+class RagIndexRequest(RepositoryRequest):
+    pass
 
-class DecisionRequest(BaseModel):
-    repository_path: str
+class DecisionRequest(RepositoryRequest):
     documentation_file: str
     class_name: str
     method_name: str
@@ -152,8 +175,9 @@ class DecisionRequest(BaseModel):
 
 
 @app.post("/suggest")
-def generate_suggestion(request: SuggestionRequest):
-    repository_path = Path(request.repository_path).expanduser().resolve()
+def generate_suggestion(request: SuggestionRequest, access: Access = Depends(authenticate)):
+    workspace = resolve_repository(access, request.repository_path, request.repository_id)
+    repository_path = workspace.path.resolve()
     if not repository_path.exists() or not repository_path.is_dir():
         return {
             "error": "Repository path does not exist or is not a directory."
@@ -206,22 +230,26 @@ def generate_suggestion(request: SuggestionRequest):
     except ValueError:
         return {"error": "Groq returned invalid documentation."}
 
-    return {
+    return _public_workspace_result({
         **result,
         "developer_comment": developer_comment
-    }
+    }, workspace)
 
 
 @app.post("/rag/index")
-def index_repository_rag(request: RagIndexRequest):
-    repository_path = Path(request.repository_path).expanduser()
+def index_repository_rag(request: RagIndexRequest, access: Access = Depends(authenticate)):
+    workspace = resolve_repository(access, request.repository_path, request.repository_id)
+    repository_path = workspace.path
     if not repository_path.is_absolute():
         raise HTTPException(
             status_code=400,
             detail="repository_path must be an absolute path."
         )
     try:
-        return index_repository_documentation(str(repository_path))
+        result = index_repository_documentation(str(repository_path))
+        if workspace.repository_id:
+            result["repository_id"] = workspace.repository_id
+        return _public_workspace_result(result, workspace)
     except FileNotFoundError as error:
         raise HTTPException(
             status_code=404,
@@ -233,19 +261,24 @@ def index_repository_rag(request: RagIndexRequest):
             detail="Repository path must be a directory."
         ) from error
     except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+        detail = "Could not index repository documentation." if access.mode == "hosted" else str(error)
+        raise HTTPException(status_code=400, detail=detail) from error
 
 
 @app.get("/rag/status")
-def repository_rag_status(repository_path: str):
-    path = Path(repository_path).expanduser()
+def repository_rag_status(repository_path: str | None = None, repository_id: str | None = None, access: Access = Depends(authenticate)):
+    workspace = resolve_repository(access, repository_path, repository_id)
+    path = workspace.path
     if not path.is_absolute():
         raise HTTPException(
             status_code=400,
             detail="repository_path must be an absolute path."
         )
     try:
-        return get_repository_index_status(str(path))
+        result = get_repository_index_status(str(path))
+        if workspace.repository_id:
+            result["repository_id"] = workspace.repository_id
+        return _public_workspace_result(result, workspace)
     except FileNotFoundError as error:
         raise HTTPException(
             status_code=404,
@@ -260,7 +293,11 @@ def repository_rag_status(repository_path: str):
 
 
 @app.post("/decision")
-def documentation_decision(request: DecisionRequest):
+def documentation_decision(request: DecisionRequest, access: Access = Depends(authenticate)):
+    workspace = resolve_repository(access, request.repository_path, request.repository_id)
+    if access.mode == "hosted":
+        raise HTTPException(403, "The legacy decision workflow is unavailable in hosted mode.")
+    request.repository_path = str(workspace.path)
 
     decision = request.decision.lower()
 
@@ -346,7 +383,23 @@ def documentation_decision(request: DecisionRequest):
 
 
 @app.get("/history")
-def get_documentation_history():
+def get_documentation_history(access: Access = Depends(authenticate)):
+    if access.mode == "hosted":
+        history = []
+        for audit in list_audit_records(GENERATION_STORE_PATH):
+            record = get_record(GENERATION_STORE_PATH, audit["generation_id"])
+            if not record or not record.get("workspace_id"):
+                continue
+            try:
+                workspace = resolve_repository(access, None, record["workspace_id"])
+            except HTTPException as error:
+                if error.status_code == 404:
+                    continue
+                raise
+            history.append(_public_workspace_result(
+                {**audit, "repository_identity": record["workspace_id"]}, workspace
+            ))
+        return {"history": history}
     return {
         "history": load_history() + list_audit_records(
             GENERATION_STORE_PATH
@@ -356,18 +409,22 @@ def get_documentation_history():
 
 
 @app.get("/repositories")
-def get_repositories():
+def get_repositories(access: Access = Depends(authenticate)):
     """Return all registered repositories."""
+    if access.mode == "hosted":
+        return {"repositories": list_workspaces(access)}
     return {
         "repositories": load_repositories()
     }
 
 
 @app.post("/repositories")
-def add_repository(request: RepositoryRequest):
+def add_repository(request: RepositoryRequest, access: Access = Depends(authenticate)):
     """Validate and register a local Git repository."""
 
-    repository_path = Path(request.repository_path).expanduser()
+    if access.mode == "hosted":
+        raise HTTPException(403, "Hosted repository imports are disabled.")
+    repository_path = resolve_repository(access, request.repository_path, request.repository_id).path
 
     if not repository_path.exists():
         return {
@@ -431,15 +488,22 @@ def add_repository(request: RepositoryRequest):
 
 
 @app.delete("/repositories/{repository_id}")
-def delete_repository(repository_id: int):
+def delete_repository(repository_id: str, access: Access = Depends(authenticate)):
     """Remove a registered repository."""
+    if access.mode == "hosted":
+        resolve_repository(access, None, repository_id)
+        raise HTTPException(403, "Hosted workspace removal is not available.")
+    try:
+        local_id = int(repository_id)
+    except ValueError as error:
+        raise HTTPException(400, "Invalid repository ID.") from error
 
     repositories = load_repositories()
 
     updated_repositories = [
         repository
         for repository in repositories
-        if repository["id"] != repository_id
+        if repository["id"] != local_id
     ]
 
     if len(updated_repositories) == len(repositories):
@@ -466,8 +530,9 @@ def root():
 
 @app.post("/analyze/full")
 @timed("request.analyze_full")
-def analyze_full_repository_endpoint(request: RepositoryRequest):
-    repository_path = Path(request.repository_path).expanduser()
+def analyze_full_repository_endpoint(request: RepositoryRequest, access: Access = Depends(authenticate)):
+    workspace = resolve_repository(access, request.repository_path, request.repository_id)
+    repository_path = workspace.path
     if not repository_path.is_absolute():
         raise HTTPException(
             status_code=400,
@@ -498,7 +563,7 @@ def analyze_full_repository_endpoint(request: RepositoryRequest):
     )
     analysis["errors"].extend(documentationAnalysis["errors"])
 
-    return {
+    return _public_workspace_result({
         "repository": analysis["repository"],
         "analysis_mode": "full",
         "summary": analysis["summary"],
@@ -506,14 +571,16 @@ def analyze_full_repository_endpoint(request: RepositoryRequest):
         "documentation_files": analysis["documentation_files"],
         "documentation_analysis": documentationAnalysis,
         "errors": analysis["errors"]
-    }
+    }, workspace)
 
 
 @app.post("/documentation/generate/full")
 def generate_full_documentation_endpoint(
-    request: FullDocumentationGenerationRequest
+    request: FullDocumentationGenerationRequest,
+    access: Access = Depends(authenticate),
 ):
-    repository_path = Path(request.repository_path).expanduser()
+    workspace = resolve_repository(access, request.repository_path, request.repository_id)
+    repository_path = workspace.path
     if not repository_path.is_absolute():
         raise HTTPException(
             status_code=400,
@@ -538,7 +605,8 @@ def generate_full_documentation_endpoint(
             detail="Repository path must be a directory."
         ) from error
     except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+        detail = "Invalid documentation generation request." if access.mode == "hosted" else str(error)
+        raise HTTPException(status_code=400, detail=detail) from error
     except GroqClientError as error:
         raise HTTPException(status_code=503, detail=error.public_message) from error
     except OSError as error:
@@ -557,11 +625,11 @@ def generate_full_documentation_endpoint(
             for item in result.get("errors", [])
         )
     ):
-        return {
+        return _public_workspace_result({
             **result,
             "generation_id": None,
             "approval_status": "unavailable"
-        }
+        }, workspace)
 
     source_hashes = result.get("source_hashes", {})
     if len(source_hashes) > 5000:
@@ -581,6 +649,7 @@ def generate_full_documentation_endpoint(
         "generation_id": generationId,
         "repository": resolved_repository.name,
         "repository_identity": repository_identity,
+        "workspace_id": workspace.repository_id,
         "repository_path": str(resolved_repository),
         "documentation_target": result["documentation_target"],
         "generated_markdown": result["generated_markdown"],
@@ -609,31 +678,50 @@ def generate_full_documentation_endpoint(
             detail="Could not persist the generation approval preview."
         ) from error
 
-    return {
+    return _public_workspace_result({
         **result,
         "generation_id": generationId,
         "approval_status": "pending"
-    }
+    }, workspace)
 
 
-@app.get("/documentation/generation/{generation_id}")
-def get_documentation_generation(generation_id: str):
+def _authorized_generation(generation_id: str, access: Access) -> dict:
     record = get_record(GENERATION_STORE_PATH, generation_id)
     if record is None:
         raise HTTPException(
             status_code=404,
             detail="Generation was not found."
         )
+    if access.mode == "hosted":
+        workspace_id = record.get("workspace_id")
+        if not workspace_id:
+            raise HTTPException(404, "Generation was not found.")
+        workspace = resolve_repository(access, None, workspace_id)
+        if str(workspace.path.resolve()) != record.get("repository_path"):
+            raise HTTPException(404, "Generation was not found.")
+    return record
+
+
+@app.get("/documentation/generation/{generation_id}")
+def get_documentation_generation(generation_id: str, access: Access = Depends(authenticate)):
+    record = _authorized_generation(generation_id, access)
     public_record = dict(record)
     public_record.pop("repository_path", None)
+    if access.mode == "hosted":
+        public_record["repository_identity"] = record["workspace_id"]
+    if access.mode == "hosted":
+        workspace = resolve_repository(access, None, record["workspace_id"])
+        return _public_workspace_result(public_record, workspace)
     return public_record
 
 
 @app.post("/documentation/generation/{generation_id}/approve")
 def approve_documentation_generation(
     generation_id: str,
-    request: GenerationDecisionRequest
+    request: GenerationDecisionRequest,
+    access: Access = Depends(authenticate),
 ):
+    generation = _authorized_generation(generation_id, access)
     if request.decision != "approve":
         raise HTTPException(
             status_code=400,
@@ -652,29 +740,34 @@ def approve_documentation_generation(
     if record.get("status") == "stale":
         raise HTTPException(
             status_code=409,
-            detail=record.get("failure_reason")
+            detail=("Generation preview is stale." if access.mode == "hosted" else record.get("failure_reason"))
             or "Generation preview is stale."
         )
     if record.get("status") == "failed":
         raise HTTPException(
             status_code=500,
-            detail=record.get("failure_reason")
+            detail=("Documentation approval failed." if access.mode == "hosted" else record.get("failure_reason"))
             or "Documentation approval failed."
         )
-    return {
+    result = {
         "generation_id": generation_id,
         "status": record["status"],
         "generation_status": record.get("generation_status"),
         "documentation_target": record["documentation_target"],
         "audit": record.get("audit")
     }
+    if access.mode == "hosted":
+        return _public_workspace_result(result, resolve_repository(access, None, generation["workspace_id"]))
+    return result
 
 
 @app.post("/documentation/generation/{generation_id}/reject")
 def reject_documentation_generation(
     generation_id: str,
-    request: GenerationDecisionRequest
+    request: GenerationDecisionRequest,
+    access: Access = Depends(authenticate),
 ):
+    generation = _authorized_generation(generation_id, access)
     if request.decision != "reject":
         raise HTTPException(
             status_code=400,
@@ -689,18 +782,22 @@ def reject_documentation_generation(
         raise HTTPException(status_code=404, detail=str(error)) from error
     except GenerationConflictError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
-    return {
+    result = {
         "generation_id": generation_id,
         "status": record["status"],
         "documentation_target": record["documentation_target"],
         "audit": record.get("audit")
     }
+    if access.mode == "hosted":
+        return _public_workspace_result(result, resolve_repository(access, None, generation["workspace_id"]))
+    return result
 
 
 @app.post("/analyze")
 @timed("request.analyze_git")
-def analyze_repository(request: AnalyzeRequest):
-    repository_path = request.repository_path
+def analyze_repository(request: AnalyzeRequest, access: Access = Depends(authenticate)):
+    workspace = resolve_repository(access, request.repository_path, request.repository_id)
+    repository_path = str(workspace.path)
 
     try:
         analysis = get_java_file_changes(
@@ -708,12 +805,16 @@ def analyze_repository(request: AnalyzeRequest):
             mode=request.mode,
             base_commit=request.base_commit
         )
+    except NotGitRepositoryError as error:
+        detail = "Git-based analysis requires a Git repository; ZIP imports do not include Git history." if access.mode == "hosted" else str(error)
+        raise HTTPException(status_code=400, detail=detail) from error
     except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+        detail = "Git comparison failed." if access.mode == "hosted" else str(error)
+        raise HTTPException(status_code=400, detail=detail) from error
     except GitCommandError as error:
         raise HTTPException(
             status_code=500,
-            detail=f"Git comparison failed: {error}"
+            detail="Git comparison failed." if access.mode == "hosted" else f"Git comparison failed: {error}"
         ) from error
 
     root = analysis["root"]
@@ -918,10 +1019,10 @@ def analyze_repository(request: AnalyzeRequest):
             result["errors"] = errors
         results.append(result)
 
-    return {
+    return _public_workspace_result({
         "repository": root.name,
         "current_commit": analysis["current_commit"],
         "previous_commit": analysis["previous_commit"],
         "results": results,
         "mode": analysis["mode"]
-    }
+    }, workspace)

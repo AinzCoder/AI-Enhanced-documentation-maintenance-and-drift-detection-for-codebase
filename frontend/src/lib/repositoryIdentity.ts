@@ -1,3 +1,5 @@
+import { isHosted } from "./deployment";
+
 function canonicalWindowsPath(path: string): string | null {
   const normalizedSeparators = path.trim().replaceAll("/", "\\");
   const driveMatch = normalizedSeparators.match(/^([A-Za-z]:)\\(.*)$/);
@@ -35,6 +37,7 @@ function canonicalWindowsPath(path: string): string | null {
 export async function getWindowsRepositoryIdentity(
   path: string
 ): Promise<string | null> {
+  if (isHosted) return /^[0-9a-f]{32}$/.test(path) ? path : null;
   const canonicalPath = canonicalWindowsPath(path);
   if (!canonicalPath || !globalThis.crypto?.subtle) {
     return null;

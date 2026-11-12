@@ -5,6 +5,10 @@ from git.exc import BadName, BadObject, GitCommandError, InvalidGitRepositoryErr
 from timing import timed
 
 
+class NotGitRepositoryError(ValueError):
+    pass
+
+
 def _open_repository(repository_path):
     root = Path(repository_path).expanduser().resolve()
     if not root.exists() or not root.is_dir():
@@ -13,7 +17,7 @@ def _open_repository(repository_path):
     try:
         repo = Repo(str(root), search_parent_directories=False)
     except (InvalidGitRepositoryError, NoSuchPathError) as error:
-        raise ValueError(f"Not a Git repository: {root}") from error
+        raise NotGitRepositoryError(f"Not a Git repository: {root}") from error
 
     if repo.bare or repo.working_tree_dir is None:
         raise ValueError("Bare Git repositories are not supported.")

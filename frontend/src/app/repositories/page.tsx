@@ -1,14 +1,15 @@
 
 "use client";
 import PageHeader from "../components/PageHeader";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import Link from "next/link";
 import { apiBaseUrl } from "@/lib/apiBaseUrl";
+import { isHosted } from "@/lib/deployment";
 import { useRepositoryAnalysis } from "../components/repository/RepositoryAnalysisContext";
+import RepositorySourceSelector from "../components/repository/RepositorySourceSelector";
 import {
   FolderGit2,
-  Plus,
   Search,
   Trash2,
   ScanSearch,
@@ -20,10 +21,10 @@ import {
 } from "lucide-react";
 
 type Repository = {
-  id: number;
+  id: number | string;
   name: string;
-  path: string;
-  branch: string;
+  path?: string;
+  branch?: string;
 };
 
 export default function RepositoriesPage() {
@@ -34,7 +35,8 @@ export default function RepositoriesPage() {
 
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const addingRef = useRef(false);
+  const [deletingId, setDeletingId] = useState<number | string | null>(null);
 
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -50,7 +52,13 @@ export default function RepositoriesPage() {
       setRepositories(response.data.repositories ?? []);
     } catch (err) {
       console.error("Failed to load repositories:", err);
-      setError("Could not load repositories. Check whether FastAPI is running.");
+      if (isHosted && axios.isAxiosError(err) && err.response?.status === 401) {
+        setError("Your session has expired. Sign in again.");
+      } else if (isHosted && axios.isAxiosError(err) && err.response?.status === 403) {
+        setError("You do not have permission to access these repositories.");
+      } else {
+        setError("Could not load repositories. Check whether FastAPI is running.");
+      }
     } finally {
       setLoading(false);
     }
@@ -66,12 +74,14 @@ export default function RepositoriesPage() {
 
   // Register a repository through FastAPI.
   const addRepository = async () => {
+    if (addingRef.current || isHosted) return;
     if (!repositoryPath.trim()) {
       setError("Please enter a repository path.");
       setMessage("");
       return;
     }
 
+    addingRef.current = true;
     try {
       setAdding(true);
       setError("");
@@ -102,12 +112,13 @@ export default function RepositoriesPage() {
         setError("An unexpected error occurred.");
       }
     } finally {
+      addingRef.current = false;
       setAdding(false);
     }
   };
 
   // Delete a repository through FastAPI.
-  const removeRepository = async (id: number) => {
+  const removeRepository = async (id: number | string) => {
     const confirmed = window.confirm(
       "Are you sure you want to remove this repository from DocGuard?"
     );
@@ -180,70 +191,14 @@ export default function RepositoriesPage() {
           </div>
         </div>
 
-        {/* Add repository */}
-        <section className="mb-8 rounded-xl border border-white/10 bg-[#111a2e] p-6">
-          <div className="mb-5 flex items-center gap-3">
-            <div className="rounded-lg bg-blue-500/10 p-2.5 text-blue-400">
-              <Plus size={20} />
-            </div>
-
-            <div>
-              <h2 className="font-semibold">Add a repository</h2>
-              <p className="mt-1 text-xs text-slate-400">
-                Enter the absolute path to a local Git repository.
-              </p>
-            </div>
-          </div>
-
-          <label
-            htmlFor="repositoryPath"
-            className="mb-2 block text-sm text-slate-300"
-          >
-            Repository path
-          </label>
-
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <input
-              id="repositoryPath"
-              value={repositoryPath}
-              onChange={(event) => setRepositoryPath(event.target.value)}
-              placeholder="D:\projects\my-repository"
-              className="min-w-0 flex-1 rounded-lg border border-white/10 bg-[#0b1020] px-4 py-3 text-sm outline-none focus:border-blue-500"
-            />
-
-            <button
-              onClick={addRepository}
-              disabled={adding}
-              className="flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 py-3 text-sm font-semibold hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {adding ? (
-                <>
-                  <Loader2 size={17} className="animate-spin" />
-                  Registering...
-                </>
-              ) : (
-                <>
-                  <Plus size={17} />
-                  Add Repository
-                </>
-              )}
-            </button>
-          </div>
-
-          {error && (
-            <div className="mt-4 flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300">
-              <AlertCircle size={17} className="mt-0.5 shrink-0" />
-              {error}
-            </div>
-          )}
-
-          {message && (
-            <div className="mt-4 flex items-start gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-300">
-              <CheckCircle2 size={17} className="mt-0.5 shrink-0" />
-              {message}
-            </div>
-          )}
-        </section>
+        <RepositorySourceSelector hosted={isHosted} repositoryPath={repositoryPath}
+          onPathChange={setRepositoryPath} onAddLocal={() => void addRepository()} adding={adding} />
+        {error && <div role="alert" className="mb-4 flex items-start gap-2 rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300">
+          <AlertCircle size={17} className="mt-0.5 shrink-0" />{error}
+        </div>}
+        {message && <div role="status" className="mb-4 flex items-start gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-300">
+          <CheckCircle2 size={17} className="mt-0.5 shrink-0" />{message}
+        </div>}
 
         {/* Repository list */}
         <section className="overflow-hidden rounded-xl border border-white/10 bg-[#111a2e]">
@@ -291,12 +246,12 @@ export default function RepositoriesPage() {
                       <h3 className="font-medium">{repo.name}</h3>
 
                       <p className="mt-1 break-all text-xs text-slate-500">
-                        {repo.path}
+                        {repo.path || repo.id}
                       </p>
 
                       <div className="mt-2 flex items-center gap-2 text-xs text-slate-400">
                         <GitBranch size={13} />
-                        {repo.branch}
+                        {repo.branch || "Hosted workspace"}
                       </div>
                     </div>
                   </div>
@@ -304,14 +259,14 @@ export default function RepositoriesPage() {
                   <div className="flex shrink-0 items-center gap-2">
                     <Link
                       href="/analysis"
-                      onClick={() => selectRepository(repo.path)}
+                      onClick={() => selectRepository(isHosted ? String(repo.id) : repo.path || "")}
                       className="flex items-center gap-2 rounded-lg bg-blue-600/15 px-3 py-2 text-xs font-medium text-blue-300 hover:bg-blue-600/25"
                     >
                       <ScanSearch size={15} />
                       Analyze
                     </Link>
 
-                    <button
+                    {!isHosted && <button
                       onClick={() => removeRepository(repo.id)}
                       disabled={deletingId === repo.id}
                       aria-label={`Remove ${repo.name}`}
@@ -322,7 +277,7 @@ export default function RepositoriesPage() {
                       ) : (
                         <Trash2 size={16} />
                       )}
-                    </button>
+                    </button>}
                   </div>
                 </div>
               ))}
@@ -343,7 +298,7 @@ export default function RepositoriesPage() {
               <p className="mt-2 text-xs text-slate-500">
                 {search
                   ? "Try a different search term."
-                  : "Add a Git repository using the form above."}
+                  : isHosted ? "Hosted imports are not yet available." : "Add a Git repository using the form above."}
               </p>
             </div>
           )}

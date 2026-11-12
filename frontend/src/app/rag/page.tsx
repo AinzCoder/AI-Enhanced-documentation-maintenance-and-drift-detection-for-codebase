@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRepositoryAnalysis } from "../components/repository/RepositoryAnalysisContext";
 import { getApiErrorMessage, getRagStatus, indexRepository } from "@/lib/api";
 import { getWindowsRepositoryIdentity } from "@/lib/repositoryIdentity";
+import { isValidRepositorySelection } from "@/lib/repositorySelection";
 import type { RagIndexResponse, RagStatusResponse } from "@/types/api";
 
 interface RagIndexError {
@@ -82,7 +83,7 @@ function isRagStatusResponse(value: unknown): value is RagStatusResponse {
 }
 
 function absoluteWindowsPath(path: string): boolean {
-  return /^[A-Za-z]:[\\/]/.test(path) || /^\\\\[^\\]+\\[^\\]+/.test(path);
+  return isValidRepositorySelection(path);
 }
 
 function safeErrorMessage(error: unknown): string {
